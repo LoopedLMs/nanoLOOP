@@ -20,13 +20,7 @@ Research code — simple, correct, and efficient:
 - NEVER: `pip install` or `uv pip install`
 
 ## Running Code
-Python scripts must be run within the uv environment:
+Python scripts must be run within the uv environment
 
 ## Debugging
 Check `.venv` source code directly for library implementation details
-
-## Ouro Model (`ouro_rl/modeling/`)
-We ship a local copy of the Ouro model with upstream bugs fixed:
-- **`OuroForCausalLM`** — local model class with fixed `UniversalTransformerCache.get_mask_sizes` (upstream returns wrong kv_length during autoregressive steps, corrupting batched generation)
-- **Token IDs** (`ouro_rl.modeling.constants`): Upstream ships bos/eos/pad all set to `<|endoftext|>` (id=0). Correct: `BOS_TOKEN_ID=1` (`<|im_start|>`), `EOS_TOKEN_ID=2` (`<|im_end|>`), `PAD_TOKEN_ID=0`.
-- **Chat template**: `ouro_rl/modeling/chat_template.jinja` — supports `enable_thinking=True` to prepend `<think>\n` after `assistant\n`
