@@ -45,6 +45,7 @@ wandb_project = "nanoLOOP"
 wandb_run_name = "looped-gpt"  # 'run' + str(time.time())
 # data
 dataset = "openwebtext"
+task_mix = ""  # procedural tasks, e.g. "addition:1-5 sat:2-4" (overrides dataset)
 gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
 batch_size = 12  # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
@@ -124,42 +125,61 @@ ptdtype = {
 ctx = nullcontext() if device_type == "cpu" else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join("data", dataset)
+if task_mix:
+    from tasks import VOCAB_SIZE as _task_vocab_size
+    from tasks import TaskMix
 
+    _task_mix = TaskMix.from_spec(task_mix)
+    meta_vocab_size = _task_vocab_size
+    print(f"using procedural tasks: {task_mix} (vocab_size={meta_vocab_size})")
 
-def get_batch(split):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
-    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
-    if split == "train":
-        data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
-    else:
-        data = np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i : i + block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i + 1 : i + 1 + block_size]).astype(np.int64)) for i in ix])
-    if device_type == "cuda":
-        # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-        x, y = (
-            x.pin_memory().to(device, non_blocking=True),
-            y.pin_memory().to(device, non_blocking=True),
-        )
-    else:
-        x, y = x.to(device), y.to(device)
-    return x, y
+    def get_batch(_split):
+        x, y = _task_mix.get_batch(batch_size, block_size)
+        if device_type == "cuda":
+            x, y = (
+                x.pin_memory().to(device, non_blocking=True),
+                y.pin_memory().to(device, non_blocking=True),
+            )
+        else:
+            x, y = x.to(device), y.to(device)
+        return x, y
+
+else:
+    data_dir = os.path.join("data", dataset)
+
+    def get_batch(split):
+        # We recreate np.memmap every batch to avoid a memory leak, as per
+        # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
+        if split == "train":
+            data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
+        else:
+            data = np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
+        ix = torch.randint(len(data) - block_size, (batch_size,))
+        x = torch.stack([torch.from_numpy((data[i : i + block_size]).astype(np.int64)) for i in ix])
+        y = torch.stack([torch.from_numpy((data[i + 1 : i + 1 + block_size]).astype(np.int64)) for i in ix])
+        if device_type == "cuda":
+            # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
+            x, y = (
+                x.pin_memory().to(device, non_blocking=True),
+                y.pin_memory().to(device, non_blocking=True),
+            )
+        else:
+            x, y = x.to(device), y.to(device)
+        return x, y
+
+    # attempt to derive vocab_size from the dataset
+    meta_path = os.path.join(data_dir, "meta.pkl")
+    meta_vocab_size = None
+    if os.path.exists(meta_path):
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+        meta_vocab_size = meta["vocab_size"]
+        print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
-
-# attempt to derive vocab_size from the dataset
-meta_path = os.path.join(data_dir, "meta.pkl")
-meta_vocab_size = None
-if os.path.exists(meta_path):
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-    meta_vocab_size = meta["vocab_size"]
-    print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
 model_args = dict(
