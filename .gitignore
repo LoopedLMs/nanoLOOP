@@ -3,10 +3,13 @@
 .ipynb_checkpoints/
 .vscode
 __pycache__/
+.ruff_cache/
 *.bin
 *.pkl
 *.pt
 *.pyc
 input.txt
 env/
-venv/
+.venv/
+
+outputs/
