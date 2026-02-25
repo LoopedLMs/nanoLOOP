@@ -42,6 +42,7 @@ ignore = [
     "B905",  # zip without explicit strict parameter
     "C408",  # unnecessary dict() call (rewrite as a literal)
     "E731",  # allow lambda assignments
+    "SIM108",  # ternary operator — if/else blocks are clearer for multi-line expressions
 ]
 
 [tool.ruff.lint.per-file-ignores]
